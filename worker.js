@@ -75,4 +75,93 @@ function parseHorses(html){
     const name = r.match(/<a[^>]*>([^<]{2,40})<\/a>/);
 
     if(no && name){
-      const num = no[1
+      const num = no[1];
+      if(!horses.find(h=>h.no===num)){
+        horses.push({
+          frame:String(Math.ceil(num/2)),
+          no:num,
+          name:name[1].trim(),
+          last1:"",last2:"",last3:"",
+          odds:"",popularity:""
+        });
+      }
+    }
+  }
+
+  return horses.sort((a,b)=>a.no-b.no);
+}
+
+async function buildRace(dateObj, place){
+  const date = ymd(dateObj);
+  const races=[];
+
+  for(let r=1;r<=12;r++){
+    const raceId = `${date}${place.code}${pad(r)}`;
+    const url = `https://race.netkeiba.com/race/shutuba.html?race_id=${raceId}`;
+
+    try{
+      const html = await fetchText(url);
+      const text = strip(html);
+
+      if(text.length < 1000) continue; // 存在しないレース除外
+
+      const horses = parseHorses(html);
+
+      races.push({
+        id:`${date}_${place.name}_${pad(r)}`,
+        race:{
+          date:`${date.slice(0,4)}/${date.slice(4,6)}/${date.slice(6,8)}`,
+          place:place.name,
+          raceNo:String(r),
+          raceName:getRaceName(text,`${place.name}${r}R`),
+          grade:getGrade(text),
+          condition:"",
+          age:"",
+          sex:"",
+          surface:getSurface(text),
+          distance:getDistance(text),
+          headcount:String(horses.length)
+        },
+        horses,
+        source:"realdata"
+      });
+
+    }catch(e){}
+  }
+
+  return races;
+}
+
+export default {
+  async fetch(req){
+    const url = new URL(req.url);
+
+    if(url.pathname === "/api/health"){
+      return new Response(JSON.stringify({
+        ok:true,
+        service:"rev-realschedule-new",
+        mode:"direct-raceid"
+      }),{headers});
+    }
+
+    if(url.pathname === "/api/schedule"){
+      const [sat,sun] = nextWeekend();
+      let races=[];
+
+      for(const d of [sat,sun]){
+        for(const p of PLACE_CODES){
+          const r = await buildRace(d,p);
+          races.push(...r);
+        }
+      }
+
+      return new Response(JSON.stringify({
+        ok:true,
+        count:races.length,
+        races
+      }),{headers});
+    }
+
+    return new Response(JSON.stringify({ok:false}),{headers});
+  }
+};
